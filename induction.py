@@ -7,7 +7,7 @@ attendus sous B corrigé. Une régularité n'est signalée comme CANDIDATE que s
 3 lots sur 4, sur au moins 4 lots et 20 questions (même règle que le garde-fou sur B). Une candidate n'est pas un
 résultat : elle se pré-enregistre (sens fixé) et se juge sur les jeux suivants.
 
-    python induction.py          (registre/banc-indicateurs-frais.jsonl)
+    python induction.py          (registre/banc-indicateurs-frais.jsonl, + registre/indicateurs-niche.jsonl)
 """
 from __future__ import annotations
 
@@ -21,7 +21,73 @@ ETATS = {
     "fcdo": (("durci", lambda v: v > 0), ("inchangé", lambda v: v == 0)),
     "ioda": (("coupures", lambda v: v > 0), ("aucune coupure", lambda v: v == 0)),
     "wiki": (("attention en hausse", lambda v: v > 0.2), ("attention en baisse", lambda v: v < -0.2)),
+    # 0.10.138 : indicateurs de niche (indicateurs_niche.py)
+    "wikimodif": (("modifications politiques en hausse", lambda v: v > 0.3), ("modifications politiques en baisse", lambda v: v < -0.3)),
+    "prix_alim": (("prix alimentaires en hausse (> 10 % sur un an)", lambda v: v > 0.10),
+                  ("prix alimentaires stables ou en baisse", lambda v: v <= 0.02)),
+    "vols": (("vols en baisse (> 20 %)", lambda v: v < -0.22), ("vols stables ou en hausse", lambda v: v > -0.05)),
+    "telegram": (("Telegram s'emballe (× 1,5)", lambda v: v > 0.4), ("Telegram se tait (÷ 1,5)", lambda v: v < -0.4)),
+    "violationswatch": (("Violations Watch signale un incident grave", lambda v: v >= 1),
+                        ("Violations Watch ne signale rien de grave", lambda v: v == 0)),
+    "rss_presse": (("la presse en parle de plus en plus (× 1,5)", lambda v: v > 0.4), ("la presse se tait (÷ 1,5)", lambda v: v < -0.4)),
+    "rss_officiel": (("sources officielles actives (≥ 3 articles)", lambda v: v >= 3), ("sources officielles muettes", lambda v: v == 0)),
+    "rss_parlement_ue": (("le Parlement européen s'en saisit", lambda v: v >= 1), ("le Parlement européen n'en parle pas", lambda v: v == 0)),
+    "rss_renseignement": (("les lettres de renseignement en parlent", lambda v: v >= 1), ("les lettres de renseignement n'en parlent pas", lambda v: v == 0)),
+    "rss_sante": (("l'OMS ou l'ECDC en parlent", lambda v: v >= 1), ("ni l'OMS ni l'ECDC n'en parlent", lambda v: v == 0)),
+    "rss_voix_citoyennes": (("Global Voices en parle", lambda v: v >= 1), ("Global Voices n'en parle pas", lambda v: v == 0)),
+    "rss_think_tanks": (("l'ECFR en parle", lambda v: v >= 1), ("l'ECFR n'en parle pas", lambda v: v == 0)),
+    "rss_economie": (("la presse économique en parle", lambda v: v >= 1), ("la presse économique n'en parle pas", lambda v: v == 0)),
+    "rss_notation": (("une agence de notation est citée", lambda v: v >= 1), ("aucune agence de notation citée", lambda v: v == 0)),
+    "brouillage_gps": (("brouillage GPS présent (≥ 5 % des zones)", lambda v: v >= 0.05), ("aucun brouillage GPS", lambda v: v == 0)),
 }
+NICHE = Path("registre") / "indicateurs-niche.jsonl"
+
+
+def joindre_niche(lignes: list[dict]) -> list[dict]:
+    """Ajoute aux lignes les indicateurs de niche mesurés pour le même pays et le même jeu."""
+    if not NICHE.exists():
+        return lignes
+    n = {}
+    for l in NICHE.read_text(encoding="utf-8").splitlines():
+        if l.strip():
+            x = json.loads(l)
+            ancien = n.get((x["pays"], x["jeu"]), {})
+            # lignes complémentaires fusionnées ; une mesure réussie n'est jamais écrasée par un échec plus récent
+            n[(x["pays"], x["jeu"])] = {**ancien, **{k: v for k, v in x.items()
+                                                     if not (isinstance(v, dict) and not v.get("present")
+                                                             and (ancien.get(k) or {}).get("present"))}}
+    out = []
+    for x in lignes:
+        m = n.get((x.get("pays"), x.get("jeu")))
+        if m:
+            x = dict(x, presents=dict(x.get("presents") or {}))
+            for k in ("wikimodif", "prix_alim", "vols", "telegram", "violationswatch", "rss_presse", "rss_officiel", "brouillage_gps"):
+                v = m.get(k) or {}
+                if k == "vols" and v.get("arrivees_2j") == 0 and v.get("arrivees_2j_quatre_semaines_avant") == 0:
+                    continue                          # 0.10.145 : couverture OpenSky absente, pas une mesure
+                if k == "telegram" and v.get("methode") != "canaux":
+                    continue                          # 0.10.151 : recherche globale abandonnée (ne remonte pas dans le passé)
+                if v.get("present"):
+                    x[k] = m[k]["valeur"]
+                    x["presents"][k] = True
+                    if k == "rss_officiel" and v.get("parlement_ue_14j") is not None:   # 0.10.155
+                        x["rss_parlement_ue"] = float(v["parlement_ue_14j"])
+                        x["presents"]["rss_parlement_ue"] = True
+                    if k == "rss_officiel" and v.get("renseignement_14j") is not None:  # 0.10.156
+                        x["rss_renseignement"] = float(v["renseignement_14j"])
+                        x["presents"]["rss_renseignement"] = True
+                    if k == "rss_officiel" and v.get("sante_14j") is not None:  # 0.10.157
+                        x["rss_sante"] = float(v["sante_14j"])
+                        x["presents"]["rss_sante"] = True
+                    if k == "rss_officiel" and v.get("voix_citoyennes_14j") is not None:  # 0.10.158
+                        x["rss_voix_citoyennes"] = float(v["voix_citoyennes_14j"])
+                        x["presents"]["rss_voix_citoyennes"] = True
+                    for cle, etat in (("think_tanks_14j", "rss_think_tanks"), ("economie_14j", "rss_economie"), ("notation_14j", "rss_notation")):  # 0.10.159
+                        if k == "rss_officiel" and v.get(cle) is not None:
+                            x[etat] = float(v[cle])
+                            x["presents"][etat] = True
+        out.append(x)
+    return out
 LOTS_MIN, N_MIN, MEME_SENS = 4, 20, 0.75
 
 
@@ -61,7 +127,7 @@ def principal() -> int:
     if not FICHIER.exists():
         print("Aucun registre.")
         return 0
-    r = observer([json.loads(l) for l in FICHIER.read_text(encoding="utf-8").splitlines() if l.strip()])
+    r = observer(joindre_niche([json.loads(l) for l in FICHIER.read_text(encoding="utf-8").splitlines() if l.strip()]))
     print(f"Observatoire inductif ({r['regle']}) :")
     for c in r["candidates"] or ["aucune régularité répétée"]:
         print(" • " + c)
