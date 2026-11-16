@@ -22,6 +22,7 @@ import json
 import math
 import os
 import re
+from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
 from typing import Awaitable, Callable
 
@@ -138,6 +139,19 @@ def _releve(source: str, titre: str, url: str, points: list[dict], avant: date |
             "date_limite": avant.isoformat() if avant else None, "points": pts, **extra}
 
 
+# 0.10.189 (audit « fuite temporelle ALFRED / FRED », 2026-11-16) : séries FRED dont les valeurs passées ne sont pas
+# révisées (cotations quotidiennes de marché, taux fixés le jour même) ; elles seules peuvent être lues sans millésime.
+# Liste fermée, fixée avant tout regard sur les scores ; toute autre série exige un millésime ALFRED valide.
+MARCHES_NON_REVISES = re.compile(
+    r"^(SP500|DJIA|NASDAQ100|NASDAQCOM|VIXCLS|GVZCLS|OVXCLS|VXNCLS|DGS\d+MO|DGS\d+|DFII\d+|DTB\d+|T\d+Y\d*M?|"
+    r"T\d+YIE|T5YIFR|DFF|EFFR|IORB|SOFR|SOFR\d+DAYAVG|SOFRINDEX|OBFR|DEX[A-Z]{4}|DTWEX[A-Z]+|DCOILWTICO|DCOILBRENTEU|"
+    r"DHHNGSP|DAAA|DBAA|AAA10Y|BAA10Y|BAML[A-Z0-9]+|CBBTCUSD|CBETHUSD|CBLTCUSD|CBBCHUSD)$")
+
+
+def marche_non_revise(serie: str) -> bool:
+    return bool(MARCHES_NON_REVISES.match(str(serie or "").upper()))
+
+
 # --------------------------------------------------------------------------- séries (comptables)
 
 async def fred(serie: str, avant: date | None = None, debut: str | None = None) -> dict:
@@ -160,6 +174,10 @@ async def fred(serie: str, avant: date | None = None, debut: str | None = None) 
         # (sans effet pour une série de marché, qui n'est pas révisée).
         if not avant or "400" not in str(e):
             raise
+        if not marche_non_revise(serie):
+            # 0.10.189 (audit ALFRED) : une série révisable sans millésime n'est pas relue au présent pour une date
+            # passée (fuite temporelle) ; seules les cotations de marché de la liste fermée le sont.
+            raise ErreurSource(f"{serie} : pas de millésime ALFRED, série révisable, lecture au présent refusée") from e
         p = {k: v for k, v in p.items() if k not in ("realtime_start", "realtime_end")}
         d = await _get("https://api.stlouisfed.org/fred/series/observations", p)
         extra["millesime"] = "indisponible : série publiée aujourd'hui, coupée à la date d'information"
@@ -167,6 +185,39 @@ async def fred(serie: str, avant: date | None = None, debut: str | None = None) 
     return _releve("FRED" + (" (ALFRED, millésime)" if avant and not extra else ""), serie,
                    f"https://fred.stlouisfed.org/series/{serie}", [x for x in pts if x["valeur"] is not None], avant,
                    debut, **extra)
+
+
+async def gdpnow(serie: str = "GDPNOW", avant: date | None = None, debut: str | None = None) -> dict:
+    """0.10.181 : GDPNow de la Fed d'Atlanta (nowcast de la croissance du PIB américain, trimestre en cours, en rythme
+    annualisé), par FRED ; avec `avant`, le millésime ALFRED : ce que GDPNow disait ce jour-là (sans fuite).
+    Une donnée d'entrée, pas une probabilité : P(seuil) demande l'erreur passée de GDPNow à la même distance de la
+    publication du BEA (à mesurer avant tout usage officiel)."""
+    serie = serie if serie.endswith("NOW") or serie == "GDPNOW" else "GDPNOW"
+    r = await fred(serie, avant=avant, debut=debut)
+    r["source"] = "GDPNow (Fed d'Atlanta), " + r["source"]
+    return r
+
+
+NOWCAST_INFLATION = Path("registre") / "nowcast-inflation.csv"
+
+
+async def nowcast_inflation(mesure: str = "CPI", genre: str = "variation_mensuelle", avant: date | None = None) -> dict:
+    """0.10.181 : nowcasts d'inflation de la Fed de Cleveland, relevés chaque jour par collecte_nowcast_inflation.py ;
+    avec `avant`, seulement les relevés antérieurs ou égaux à cette date (nos propres millésimes, sans fuite)."""
+    import csv as _csv
+    if not NOWCAST_INFLATION.exists():
+        raise ErreurSource("aucun relevé du nowcast d'inflation (collecte pas encore lancée)")
+    m = mesure.strip().lower()
+    pts = []
+    for x in _csv.DictReader(NOWCAST_INFLATION.open(encoding="utf-8")):
+        if avant and x["releve_le"] > avant.isoformat():
+            continue
+        g, _, mes = x["mesure"].lower().partition(":")
+        if mes.strip() != m or g != genre.lower():           # « CPI » ne prend pas « Core CPI »
+            continue
+        pts.append({"date": x["releve_le"], "valeur": float(x["valeur"]), "titre": f"{x['periode']} — {x['mesure']}"})
+    return _releve("Nowcast d'inflation (Fed de Cleveland, relevés quotidiens du bot)", mesure,
+                   "https://www.clevelandfed.org/indicators-and-data/inflation-nowcasting", pts, avant)
 
 
 async def banque_mondiale(pays: str, indicateur: str, avant: date | None = None) -> dict:
@@ -1131,6 +1182,15 @@ CATALOGUE: dict[str, dict] = {
     "fred": {"fn": fred, "nature": "niveau", "cle": "FRED_API_KEY", "comptable": True,
              "params": '{"serie": "identifiant FRED, ex. UNRATE, CPIAUCSL, DGS10, FEDFUNDS", "debut": "AAAA-MM-JJ facultatif"}',
              "pour": "séries économiques et financières américaines (taux, chômage, prix, dette, marchés)"},
+    "gdpnow": {"fn": gdpnow, "nature": "niveau", "cle": "FRED_API_KEY", "comptable": True,
+               "params": '{"serie": "GDPNOW (PIB) ou une composante, ex. PCENOW", "debut": "AAAA-MM-JJ facultatif"}',
+               "pour": "nowcast de la croissance du PIB américain du trimestre en cours (GDPNow, Fed d'Atlanta), tel "
+                       "qu'il était publié à la date de la question ; une donnée d'entrée, pas une probabilité"},
+    "nowcast_inflation": {"fn": nowcast_inflation, "nature": "niveau", "comptable": True,
+                          "params": '{"mesure": "CPI, Core CPI, PCE ou Core PCE", "genre": "variation_mensuelle, '
+                                    'glissement_annuel ou trimestre_annualise"}',
+                          "pour": "nowcast de l'inflation américaine du mois et du trimestre en cours (Fed de Cleveland), "
+                                  "relevés quotidiens du bot ; une donnée d'entrée, pas une probabilité"},
     "banque_mondiale": {"fn": banque_mondiale, "nature": "niveau", "comptable": True,
                         "params": '{"pays": "ISO3 ou WLD", "indicateur": "code, ex. NY.GDP.MKTP.KD.ZG"}',
                         "pour": "indicateurs annuels par pays (PIB, inflation, population, dette)"},

@@ -27,6 +27,30 @@ ETATS = {
                   ("prix alimentaires stables ou en baisse", lambda v: v <= 0.02)),
     "vols": (("vols en baisse (> 20 %)", lambda v: v < -0.22), ("vols stables ou en hausse", lambda v: v > -0.05)),
     "telegram": (("Telegram s'emballe (× 1,5)", lambda v: v > 0.4), ("Telegram se tait (÷ 1,5)", lambda v: v < -0.4)),
+    "voisins": (("les voisins s'embrasent (manifestations × 1,5)", lambda v: v > 0.4),
+                ("les voisins se calment (manifestations ÷ 1,5)", lambda v: v < -0.4)),
+    "voisins_emeutes": (("émeutes en hausse chez les voisins (× 1,5)", lambda v: v > 0.4),),
+    "gdelt": (("GDELT : plus de manifestations dans la presse (× 1,5)", lambda v: v > 0.4),
+              ("GDELT : moins de manifestations dans la presse (÷ 1,5)", lambda v: v < -0.4)),
+    "gdelt_emeutes": (("GDELT : plus d'émeutes dans la presse (× 1,5)", lambda v: v > 0.4),
+                      ("GDELT : moins d'émeutes dans la presse (÷ 1,5)", lambda v: v < -0.4)),
+    "avions_etat": (("visite d'avions d'État de régimes autoritaires", lambda v: v >= 1),
+                    ("aucune visite d'avion d'État", lambda v: v == 0)),
+    "elections": (("élection nationale dans les 30 jours avant", lambda v: v >= 1),
+                  ("aucune élection nationale dans les 30 jours avant", lambda v: v == 0)),
+    "elections_apres": (("élection nationale prévue dans les 30 jours après (fuite possible)", lambda v: v >= 1),),
+    "sanctions": (("sanctions nouvelles (États-Unis ou Royaume-Uni)", lambda v: v >= 1),
+                  ("aucune sanction nouvelle", lambda v: v == 0)),
+    "radar": (("Cloudflare signale une coupure d'internet", lambda v: v >= 1),
+              ("Cloudflare ne signale aucune coupure", lambda v: v == 0)),
+    "radar_etat": (("coupure décidée par l'État ou militaire (Cloudflare)", lambda v: v >= 1),),
+    "radar_electricite": (("panne électrique signalée (Cloudflare)", lambda v: v >= 1),),
+    "portwatch": (("PortWatch : le trafic du détroit chute (÷ 1,25)", lambda v: v < -0.22),
+                  ("PortWatch : le trafic du détroit monte (× 1,25)", lambda v: v > 0.22)),
+    "ooni": (("OONI : la censure web monte (+5 points)", lambda v: v > 0.05),
+             ("OONI : la censure web baisse (−5 points)", lambda v: v < -0.05)),
+    "ooni_messageries": (("OONI : les messageries sont plus bloquées (+10 points)", lambda v: v > 0.10),
+                         ("OONI : les messageries sont moins bloquées (−10 points)", lambda v: v < -0.10)),
     "violationswatch": (("Violations Watch signale un incident grave", lambda v: v >= 1),
                         ("Violations Watch ne signale rien de grave", lambda v: v == 0)),
     "rss_presse": (("la presse en parle de plus en plus (× 1,5)", lambda v: v > 0.4), ("la presse se tait (÷ 1,5)", lambda v: v < -0.4)),
@@ -35,7 +59,6 @@ ETATS = {
     "rss_renseignement": (("les lettres de renseignement en parlent", lambda v: v >= 1), ("les lettres de renseignement n'en parlent pas", lambda v: v == 0)),
     "rss_sante": (("l'OMS ou l'ECDC en parlent", lambda v: v >= 1), ("ni l'OMS ni l'ECDC n'en parlent", lambda v: v == 0)),
     "rss_voix_citoyennes": (("Global Voices en parle", lambda v: v >= 1), ("Global Voices n'en parle pas", lambda v: v == 0)),
-    "rss_think_tanks": (("l'ECFR en parle", lambda v: v >= 1), ("l'ECFR n'en parle pas", lambda v: v == 0)),
     "rss_economie": (("la presse économique en parle", lambda v: v >= 1), ("la presse économique n'en parle pas", lambda v: v == 0)),
     "rss_notation": (("une agence de notation est citée", lambda v: v >= 1), ("aucune agence de notation citée", lambda v: v == 0)),
     "brouillage_gps": (("brouillage GPS présent (≥ 5 % des zones)", lambda v: v >= 0.05), ("aucun brouillage GPS", lambda v: v == 0)),
@@ -61,15 +84,31 @@ def joindre_niche(lignes: list[dict]) -> list[dict]:
         m = n.get((x.get("pays"), x.get("jeu")))
         if m:
             x = dict(x, presents=dict(x.get("presents") or {}))
-            for k in ("wikimodif", "prix_alim", "vols", "telegram", "violationswatch", "rss_presse", "rss_officiel", "brouillage_gps"):
+            for k in ("wikimodif", "prix_alim", "vols", "telegram", "violationswatch", "rss_presse", "rss_officiel", "brouillage_gps", "gdelt", "ooni", "portwatch", "radar", "sanctions", "elections", "avions_etat", "voisins"):
                 v = m.get(k) or {}
                 if k == "vols" and v.get("arrivees_2j") == 0 and v.get("arrivees_2j_quatre_semaines_avant") == 0:
                     continue                          # 0.10.145 : couverture OpenSky absente, pas une mesure
                 if k == "telegram" and v.get("methode") != "canaux":
                     continue                          # 0.10.151 : recherche globale abandonnée (ne remonte pas dans le passé)
-                if v.get("present"):
+                if k == "elections" and v.get("present"):   # 0.10.179
+                    x["elections_apres"] = float(v.get("apres_30j") or 0)
+                    x["presents"]["elections_apres"] = True
+                if k == "radar" and v.get("present"):   # 0.10.177
+                    for cle, etat in (("etat_14j", "radar_etat"), ("electricite_14j", "radar_electricite")):
+                        x[etat] = float(v.get(cle) or 0)
+                        x["presents"][etat] = True
+                if k == "ooni" and v.get("present") and v.get("valeur_messageries") is not None:   # 0.10.175
+                    x["ooni_messageries"] = float(v["valeur_messageries"])
+                    x["presents"]["ooni_messageries"] = True
+                if v.get("present") and v.get("valeur") is not None:
                     x[k] = m[k]["valeur"]
                     x["presents"][k] = True
+                    if k == "voisins" and v.get("valeur_emeutes") is not None:   # 0.10.186
+                        x["voisins_emeutes"] = float(v["valeur_emeutes"])
+                        x["presents"]["voisins_emeutes"] = True
+                    if k == "gdelt" and v.get("valeur_emeutes") is not None:   # 0.10.173
+                        x["gdelt_emeutes"] = float(v["valeur_emeutes"])
+                        x["presents"]["gdelt_emeutes"] = True
                     if k == "rss_officiel" and v.get("parlement_ue_14j") is not None:   # 0.10.155
                         x["rss_parlement_ue"] = float(v["parlement_ue_14j"])
                         x["presents"]["rss_parlement_ue"] = True
@@ -82,7 +121,7 @@ def joindre_niche(lignes: list[dict]) -> list[dict]:
                     if k == "rss_officiel" and v.get("voix_citoyennes_14j") is not None:  # 0.10.158
                         x["rss_voix_citoyennes"] = float(v["voix_citoyennes_14j"])
                         x["presents"]["rss_voix_citoyennes"] = True
-                    for cle, etat in (("think_tanks_14j", "rss_think_tanks"), ("economie_14j", "rss_economie"), ("notation_14j", "rss_notation")):  # 0.10.159
+                    for cle, etat in (("economie_14j", "rss_economie"), ("notation_14j", "rss_notation")):  # 0.10.159
                         if k == "rss_officiel" and v.get(cle) is not None:
                             x[etat] = float(v[cle])
                             x["presents"][etat] = True

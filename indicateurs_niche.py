@@ -20,6 +20,23 @@ STRICTEMENT avant la date du jeu :
   proposée par decouvrir_canaux_telegram.py selon une règle fixée ; la recherche globale ne remontait presque pas dans
   le passé) : messages citant le pays en anglais, log((14 jours avant la date + 1) / (14 jours précédents + 1)), au plus
   300 messages lus par canal. Idée de l'auteur : les canaux publient avant la presse ; emballement, calme ou silence.
+- gdelt (0.10.173, en ombre) : manifestations et émeutes dans la presse codée par GDELT (collecte_gdelt.py), pays du
+  lieu de l'action ; log((14 jours avant la date + 1) / (14 jours précédents + 1)) ; historique complet, donc mesurable
+  sur les questions déjà résolues.
+- avions_etat (0.10.180, en ombre) : vols d'avions d'État de régimes autoritaires (plane-alert-db, catégorie
+  « Dictator Alert » ; vols OpenSky) arrivés dans le pays depuis l'étranger dans les 14 jours ; comptes seulement.
+- elections (0.10.179, en ombre) : élections nationales du pays (Wikidata, CC0) dans les 30 jours avant la date, et
+  prévues dans les 30 jours après (fuite possible pour les élections anticipées, déclarée).
+- sanctions (0.10.178, en ombre) : désignations visant le pays (OFAC, liste britannique) dans les 14 jours avant la
+  date (collecte_sanctions.py).
+- radar (0.10.177, en ombre) : coupures d'internet signalées par Cloudflare Radar (CC BY-NC 4.0), commencées dans
+  les 14 jours avant la date ; total, décidées par l'État ou militaires, pannes électriques.
+- portwatch (0.10.176, en ombre) : passages de navires dans les détroits liés au pays (IMF PortWatch), décalés d'une
+  semaine pour le délai de publication ; log(14 jours / 14 jours précédents).
+- voisins (0.10.186, en ombre, fiche M11) : manifestations et émeutes de GDELT dans les pays frontaliers (GeoNames,
+  CC BY 4.0), 14 jours contre 14 jours précédents ; diffusion spatiale par contagion de proximité.
+- ooni (0.10.175, en ombre) : censure d'internet (OONI, CC BY-NC-SA 4.0) : part des mesures anormales sur 14 jours
+  moins la même part sur les 14 jours précédents, sites web et messageries à part ; absent sous un minimum de mesures.
 - violationswatch (0.10.147, en ombre) : incidents graves (gravité « High » ou « Critical ») signalés par
   violationswatch.org dans le pays, premiers signalements dans les 14 jours avant la date ; lu dans nos comptes
   quotidiens (collecte_violationswatch.py) ; mesuré seulement si ces 14 jours sont couverts (données depuis le
@@ -350,6 +367,240 @@ async def telegram(tg: Telegram, pays: str, d0: date) -> dict:
             "valeur": round(math.log((recent + 1) / (avant + 1)), 4), "messages_14j": recent, "messages_14j_avant": avant}
 
 
+GDELT_COMPTES = Path("registre") / "gdelt-manifestations.csv"
+GDELT_JOURS = Path("registre") / "gdelt-jours.txt"
+_GDELT: dict | None = None
+
+
+def gdelt(cca2: str | None, d0: date, manque_max: int = 2) -> dict:
+    """0.10.173 : manifestations (code CAMEO 14) et émeutes (145) dans la presse codée par GDELT, pays du lieu de
+    l'action ; log((14 jours avant la date + 1) / (14 jours précédents + 1)). Mesuré seulement si au plus `manque_max`
+    des 28 jours manquent (collecte_gdelt.py)."""
+    global _GDELT
+    if not cca2 or not GDELT_COMPTES.exists() or not GDELT_JOURS.exists():
+        return {"present": False, "raison": "pays inconnu ou comptes GDELT absents"}
+    if _GDELT is None:
+        par = {}
+        for x in csv.DictReader(GDELT_COMPTES.open(encoding="utf-8")):
+            par.setdefault(x["pays"], {})[x["jour"]] = (int(x["manifestations"]), int(x["emeutes"]))
+        _GDELT = {"par": par, "jours": set(GDELT_JOURS.read_text(encoding="utf-8").split())}
+    jours = [(d0 - timedelta(days=k)).isoformat() for k in range(1, 29)]
+    manque = sum(1 for j in jours if j not in _GDELT["jours"])
+    if manque > manque_max:
+        return {"present": False, "raison": f"{manque} jours GDELT manquants sur 28"}
+    p = _GDELT["par"].get(cca2, {})
+    rec = [p.get(j, (0, 0)) for j in jours[:14]]
+    av = [p.get(j, (0, 0)) for j in jours[14:]]
+    m_r, m_a = sum(x[0] for x in rec), sum(x[0] for x in av)
+    e_r, e_a = sum(x[1] for x in rec), sum(x[1] for x in av)
+    return {"present": True, "valeur": round(math.log((m_r + 1) / (m_a + 1)), 4),
+            "valeur_emeutes": round(math.log((e_r + 1) / (e_a + 1)), 4),
+            "manifestations_14j": m_r, "manifestations_14j_avant": m_a, "emeutes_14j": e_r, "emeutes_14j_avant": e_a,
+            "jours_manquants": manque}
+
+
+VOISINS_URL = "https://download.geonames.org/export/dump/countryInfo.txt"
+VOISINS = Path("registre") / "voisins.json"
+_VOISINS: dict | None = None
+
+
+def lire_voisins_geonames(texte: str) -> dict[str, list[str]]:
+    """countryInfo.txt de GeoNames (CC BY 4.0) : colonne 0 = code ISO, dernière colonne utile = voisins (« FR,DE »)."""
+    out = {}
+    for l in texte.splitlines():
+        if not l or l.startswith("#"):
+            continue
+        c = l.split("\t")
+        if len(c) > 17 and len(c[0]) == 2:
+            out[c[0]] = [v for v in c[17].split(",") if len(v) == 2]
+    return out
+
+
+def voisins(cca2: str) -> list[str]:
+    """0.10.186 : pays frontaliers (GeoNames), mis en cache dans registre/voisins.json au premier besoin."""
+    global _VOISINS
+    if _VOISINS is None:
+        if VOISINS.exists():
+            _VOISINS = json.loads(VOISINS.read_text(encoding="utf-8"))
+        else:
+            try:
+                r = httpx.get(VOISINS_URL, timeout=60, follow_redirects=True)
+                r.raise_for_status()
+                _VOISINS = lire_voisins_geonames(r.text)
+                if len(_VOISINS) > 200:
+                    VOISINS.parent.mkdir(exist_ok=True)
+                    VOISINS.write_text(json.dumps(_VOISINS, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+            except Exception:
+                _VOISINS = {}
+    return _VOISINS.get(cca2, [])
+
+
+def voisins_gdelt(cca2: str | None, d0: date, manque_max: int = 2) -> dict:
+    """0.10.186, fiche M11 (diffusion spatiale, Hägerstrand ; contagion des manifestations entre pays voisins) :
+    manifestations et émeutes de GDELT dans les pays FRONTALIERS, 14 jours avant la date contre les 14 précédents ;
+    log((récent + 1) / (avant + 1)). Absent pour un pays sans voisin terrestre."""
+    if not cca2:
+        return {"present": False, "raison": "pays inconnu"}
+    vs = voisins(cca2)
+    if not vs:
+        return {"present": False, "raison": "aucun pays frontalier connu (île ou table absente)"}
+    sous = [gdelt(v, d0, manque_max) for v in vs]
+    if not any(s.get("present") for s in sous):
+        return {"present": False, "raison": (sous[0] or {}).get("raison", "GDELT absent")}
+    ok = [s for s in sous if s.get("present")]
+    m_r, m_a = sum(s["manifestations_14j"] for s in ok), sum(s["manifestations_14j_avant"] for s in ok)
+    e_r, e_a = sum(s["emeutes_14j"] for s in ok), sum(s["emeutes_14j_avant"] for s in ok)
+    return {"present": True, "valeur": round(math.log((m_r + 1) / (m_a + 1)), 4),
+            "valeur_emeutes": round(math.log((e_r + 1) / (e_a + 1)), 4), "voisins": vs,
+            "manifestations_14j": m_r, "manifestations_14j_avant": m_a}
+
+
+OONI_COMPTES = Path("registre") / "ooni-censure.csv"
+OONI_JOURS = Path("registre") / "ooni-jours.txt"
+_OONI: dict | None = None
+
+
+def ooni(cca2: str | None, d0: date, min_web: int = 50, min_msg: int = 20, manque_max: int = 2) -> dict:
+    """0.10.175 : censure (OONI) : part des mesures anormales sur 14 jours avant la date, moins la même part sur les
+    14 jours précédents ; sites web (web_connectivity) et messageries (Telegram, WhatsApp, Signal, Messenger) à part.
+    Absent sous `min_web` (`min_msg`) mesures dans l'une des deux périodes (réserve de l'auteur : volontaires)."""
+    global _OONI
+    if not cca2 or not OONI_COMPTES.exists() or not OONI_JOURS.exists():
+        return {"present": False, "raison": "pays inconnu ou comptes OONI absents"}
+    if _OONI is None:
+        par = {}
+        for x in csv.DictReader(OONI_COMPTES.open(encoding="utf-8")):
+            g = "web" if x["test"] == "web_connectivity" else "msg"
+            v = par.setdefault(x["pays"], {}).setdefault((x["jour"], g), [0, 0, 0])
+            v[0] += int(x["mesures"]); v[1] += int(x["anomalies"]); v[2] += int(x["confirmees"])
+        _OONI = {"par": par, "jours": set(OONI_JOURS.read_text(encoding="utf-8").split())}
+    jours = [(d0 - timedelta(days=k)).isoformat() for k in range(1, 29)]
+    manque = sum(1 for j in jours if j not in _OONI["jours"])
+    if manque > manque_max:
+        return {"present": False, "raison": f"{manque} jours OONI manquants sur 28"}
+    p = _OONI["par"].get(cca2, {})
+
+    def somme(js, g):
+        s = [0, 0, 0]
+        for j in js:
+            v = p.get((j, g))
+            if v:
+                s = [s[0] + v[0], s[1] + v[1], s[2] + v[2]]
+        return s
+
+    out = {"present": False, "raison": "trop peu de mesures OONI"}
+    w_r, w_a = somme(jours[:14], "web"), somme(jours[14:], "web")
+    m_r, m_a = somme(jours[:14], "msg"), somme(jours[14:], "msg")
+    if w_r[0] >= min_web and w_a[0] >= min_web:
+        out = {"present": True, "valeur": round(w_r[1] / w_r[0] - w_a[1] / w_a[0], 4),
+               "mesures_web_14j": w_r[0], "mesures_web_14j_avant": w_a[0], "confirmees_web_14j": w_r[2]}
+    if m_r[0] >= min_msg and m_a[0] >= min_msg:
+        out = {**(out if out.get("present") else {"present": True}),
+               "valeur_messageries": round(m_r[1] / m_r[0] - m_a[1] / m_a[0], 4),
+               "mesures_msg_14j": m_r[0], "mesures_msg_14j_avant": m_a[0], "confirmees_msg_14j": m_r[2]}
+        out.setdefault("valeur", None)
+    return out
+
+
+PORTWATCH = Path("registre") / "portwatch-detroits.csv"
+_PW: dict | None = None
+
+
+def portwatch(cca2: str | None, d0: date, delai: int = 7) -> dict:
+    """0.10.176 : passages de navires (IMF PortWatch) dans les détroits liés au pays (table fixe de
+    collecte_portwatch.DETROITS). PortWatch publie avec retard : on n'utilise que les jours antérieurs d'au moins
+    `delai` jours à la date ; log((14 jours [d0−21, d0−8] + 1) / (14 jours [d0−35, d0−22] + 1)), tous les jours
+    présents exigés."""
+    global _PW
+    import collecte_portwatch as cp
+    detroits = [k for k, (_, pays) in cp.DETROITS.items() if cca2 in pays] if cca2 else []
+    if not detroits or not PORTWATCH.exists():
+        return {"present": False, "raison": "aucun détroit lié au pays, ou comptes absents"}
+    if _PW is None:
+        _PW = {(x["detroit"], x["jour"]): (int(x["navires"]), int(x["petroliers"]))
+               for x in csv.DictReader(PORTWATCH.open(encoding="utf-8"))}
+    rec = [(d0 - timedelta(days=k)).isoformat() for k in range(delai + 1, delai + 15)]
+    av = [(d0 - timedelta(days=k)).isoformat() for k in range(delai + 15, delai + 29)]
+    if any((d, j) not in _PW for d in detroits for j in rec + av):
+        return {"present": False, "raison": "jours PortWatch manquants"}
+    s = lambda js, i: sum(_PW[(d, j)][i] for d in detroits for j in js)
+    return {"present": True, "valeur": round(math.log((s(rec, 0) + 1) / (s(av, 0) + 1)), 4),
+            "valeur_petroliers": round(math.log((s(rec, 1) + 1) / (s(av, 1) + 1)), 4),
+            "detroits": detroits, "navires_14j": s(rec, 0), "navires_14j_avant": s(av, 0)}
+
+
+RADAR = Path("registre") / "radar-coupures.csv"
+RADAR_COUVERTURE = Path("registre") / "radar-couverture.txt"
+CAUSES_ETAT = {"GOVERNMENT_DIRECTED", "MILITARY_ACTION"}
+
+
+def radar(cca2: str | None, d0: date) -> dict:
+    """0.10.177 : coupures d'internet signalées par Cloudflare Radar dans le pays, commencées dans les 14 jours avant la
+    date ; total, coupures décidées par l'État ou dues à une action militaire, pannes électriques."""
+    if not cca2 or not RADAR.exists() or not RADAR_COUVERTURE.exists():
+        return {"present": False, "raison": "pays inconnu ou coupures Radar absentes"}
+    if date.fromisoformat(RADAR_COUVERTURE.read_text(encoding="utf-8").strip()) > d0 - timedelta(days=14):
+        return {"present": False, "raison": "période non couverte"}
+    a, b = (d0 - timedelta(days=14)).isoformat(), d0.isoformat()
+    vues = [x for x in csv.DictReader(RADAR.open(encoding="utf-8")) if x["pays"] == cca2 and a <= x["debut"] < b]
+    return {"present": True, "valeur": len(vues),
+            "etat_14j": sum(1 for x in vues if x["cause"] in CAUSES_ETAT and x.get("motif") != "examens"),
+            "examens_14j": sum(1 for x in vues if x.get("motif") == "examens"),
+            "electricite_14j": sum(1 for x in vues if x["cause"] == "POWER_OUTAGE")}
+
+
+SANCTIONS = Path("registre") / "sanctions.csv"
+SANCTIONS_COUVERTURE = Path("registre") / "sanctions-couverture.txt"
+
+
+def sanctions(cca2: str | None, d0: date) -> dict:
+    """0.10.178 : désignations de sanctions visant le pays (OFAC, Royaume-Uni) dans les 14 jours avant la date."""
+    if not cca2 or not SANCTIONS.exists() or not SANCTIONS_COUVERTURE.exists():
+        return {"present": False, "raison": "pays inconnu ou sanctions absentes"}
+    if date.fromisoformat(SANCTIONS_COUVERTURE.read_text(encoding="utf-8").strip()) > d0 - timedelta(days=14):
+        return {"present": False, "raison": "période non couverte"}
+    a, b = (d0 - timedelta(days=14)).isoformat(), d0.isoformat()
+    vues = [x for x in csv.DictReader(SANCTIONS.open(encoding="utf-8")) if x["pays"] == cca2 and a <= x["jour"] < b]
+    return {"present": True, "valeur": sum(int(x["designations"]) for x in vues),
+            "ofac_14j": sum(int(x["designations"]) for x in vues if x["source"] == "ofac"),
+            "uk_14j": sum(int(x["designations"]) for x in vues if x["source"] == "uk")}
+
+
+ELECTIONS = Path("registre") / "elections.csv"
+
+
+def elections(cca2: str | None, d0: date) -> dict:
+    """0.10.179 : élections nationales du pays (Wikidata) dans les 30 jours avant la date (sans fuite) et prévues dans
+    les 30 jours après (fuite possible pour une élection anticipée annoncée après la date, déclarée)."""
+    if not cca2 or not ELECTIONS.exists():
+        return {"present": False, "raison": "pays inconnu ou calendrier absent"}
+    av_a, av_b = (d0 - timedelta(days=30)).isoformat(), d0.isoformat()
+    ap_b = (d0 + timedelta(days=30)).isoformat()
+    xs = [x for x in csv.DictReader(ELECTIONS.open(encoding="utf-8")) if x["pays"] == cca2]
+    avant = [x for x in xs if av_a <= x["date"] < av_b]
+    apres = [x for x in xs if av_b <= x["date"] < ap_b]
+    return {"present": True, "valeur": len(avant), "apres_30j": len(apres),
+            "noms": [x["nom"] for x in avant + apres][:4]}
+
+
+AVIONS_ETAT = Path("registre") / "avions-etat.csv"
+AVIONS_ETAT_JOURS = Path("registre") / "avions-etat-jours.txt"
+
+
+def avions_etat(cca2: str | None, d0: date, manque_max: int = 2) -> dict:
+    """0.10.180 : vols d'avions d'État de régimes autoritaires (liste « Dictator Alert ») arrivés dans le pays depuis
+    l'étranger, et partis du pays vers l'étranger, dans les 14 jours avant la date (collecte_avions_etat.py)."""
+    if not cca2 or not AVIONS_ETAT.exists() or not AVIONS_ETAT_JOURS.exists():
+        return {"present": False, "raison": "pays inconnu ou comptes absents"}
+    lus = set(AVIONS_ETAT_JOURS.read_text(encoding="utf-8").split())
+    js = [(d0 - timedelta(days=k)).isoformat() for k in range(1, 15)]
+    if sum(1 for j in js if j not in lus) > manque_max:
+        return {"present": False, "raison": "période non couverte"}
+    xs = [x for x in csv.DictReader(AVIONS_ETAT.open(encoding="utf-8")) if x["pays"] == cca2 and x["jour"] in js]
+    return {"present": True, "valeur": sum(int(x["arrivees_etrangeres"]) for x in xs),
+            "departs_14j": sum(int(x["departs_vers_etranger"]) for x in xs)}
+
+
 RSS_COMPTES = Path("registre") / "rss-comptes.csv"
 RSS_DEBUT = date(2026, 11, 16)
 
@@ -404,7 +655,7 @@ async def principal() -> int:
                 x = json.loads(l)
                 # 0.10.142 : seule une mesure réussie compte comme faite ; les échecs sont retentés
                 mesures.setdefault((x["pays"], x["jeu"]), set()).update(
-                    k for k in ("wikimodif", "prix_alim", "vols", "telegram", "violationswatch", "rss_presse", "rss_officiel", "brouillage_gps") if (x.get(k) or {}).get("present")
+                    k for k in ("wikimodif", "prix_alim", "vols", "telegram", "violationswatch", "rss_presse", "rss_officiel", "brouillage_gps", "gdelt", "ooni", "portwatch", "radar", "sanctions", "elections", "avions_etat", "voisins") if (x.get(k) or {}).get("present")
                     and (k != "telegram" or x[k].get("methode") == "canaux"))
     couples = sorted({(x["pays"], x["jeu"]) for x in lignes if x.get("pays")})
     cache, cache_csv, cache_pays = {}, {}, {}
@@ -444,6 +695,30 @@ async def principal() -> int:
                 if "brouillage_gps" not in fait and essai:
                     code_g = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
                     ligne["brouillage_gps"] = await gps.mesure(c, code_g, d0)
+                if "gdelt" not in fait and GDELT_JOURS.exists():
+                    code = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
+                    ligne["gdelt"] = gdelt(code, d0)
+                if "avions_etat" not in fait and AVIONS_ETAT_JOURS.exists():
+                    code = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
+                    ligne["avions_etat"] = avions_etat(code, d0)
+                if "elections" not in fait and ELECTIONS.exists():
+                    code = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
+                    ligne["elections"] = elections(code, d0)
+                if "sanctions" not in fait and SANCTIONS.exists():
+                    code = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
+                    ligne["sanctions"] = sanctions(code, d0)
+                if "radar" not in fait and RADAR.exists():
+                    code = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
+                    ligne["radar"] = radar(code, d0)
+                if "portwatch" not in fait and PORTWATCH.exists():
+                    code = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
+                    ligne["portwatch"] = portwatch(code, d0)
+                if "voisins" not in fait and GDELT_JOURS.exists():
+                    code = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
+                    ligne["voisins"] = voisins_gdelt(code, d0)
+                if "ooni" not in fait and OONI_JOURS.exists():
+                    code = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
+                    ligne["ooni"] = ooni(code, d0)
                 if ("rss_officiel" not in fait or "rss_presse" not in fait) and d0 - timedelta(days=14) >= RSS_DEBUT:
                     code = await os_.code_pays(pays) or (await __import__("banc_indicateurs").fiche_pays(c, pays, cache_pays)).get("cca2")
                     ligne["rss_presse"], ligne["rss_officiel"] = rss(code, d0)
@@ -452,7 +727,7 @@ async def principal() -> int:
                 f.write(json.dumps(ligne, ensure_ascii=False) + "\n")
                 f.flush()
                 print(f"{pays[:22]:22s} {jeu} : " + " · ".join(f"{k} {(ligne[k] or {}).get('valeur')}"
-                                                            for k in ("wikimodif", "prix_alim", "vols", "telegram", "violationswatch", "rss_presse", "rss_officiel", "brouillage_gps") if k in ligne))
+                                                            for k in ("wikimodif", "prix_alim", "vols", "telegram", "violationswatch", "rss_presse", "rss_officiel", "brouillage_gps", "gdelt", "ooni", "portwatch", "radar", "sanctions", "elections", "avions_etat", "voisins") if k in ligne))
         await tg.fermer()
     return 0
 
