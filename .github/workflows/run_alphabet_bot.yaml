@@ -5,7 +5,7 @@ on:
     inputs:
       mode:
         description: "tournament, minibench ou test_questions"
-        default: "minibench"
+        default: "test_questions"
       max_questions:
         description: "questions nouvelles au plus pour ce passage (0 = toutes)"
         default: "1"
@@ -13,8 +13,6 @@ on:
   # 0.6.0 : aucun plafond par défaut (ALPHABET_MAX_QUESTIONS = 0 : toutes les questions ouvertes) ; un plafond
   # quotidien reste possible en donnant un nombre à cette variable. Un contrôle sans question nouvelle ne sonde aucun
   # modèle, ne coûte rien et n'écrit rien dans le dépôt.
-  schedule:
-    - cron: "*/20 * * * *"
 
 concurrency:
   group: bot-alphabet-registre   # partagé avec le score : une seule écriture du registre à la fois
