@@ -34,7 +34,7 @@ https://www.ecdc.europa.eu/en/taxonomy/term/1295/feed,sante,2026-11-22,ok,10,202
 https://www.ecdc.europa.eu/en/taxonomy/term/1310/feed,sante,2026-11-22,ok,10,2026-11-22,2026-11-15
 https://www.ecdc.europa.eu/en/taxonomy/term/1505/feed,sante,2026-11-22,ok,10,2026-11-22,2026-11-15
 https://www.ecdc.europa.eu/en/taxonomy/term/323/feed,sante,2026-11-22,ok,10,2026-11-22,2026-11-15
-https://www.gdacs.org/xml/rss.xml,officiel,2026-11-22,ok,195,2026-11-22,2026-11-22
+https://www.gdacs.org/xml/rss.xml,officiel,2026-11-22,ok,175,2026-11-22,2026-11-22
 https://www.gov.uk/foreign-travel-advice.atom,officiel,2026-11-22,ok,20,2026-11-22,2026-11-21
 https://www.iata.org/api/rss/pressrelease,economie,2026-11-22,ok,50,2026-11-22,2026-11-20
 https://www.la-croix.com/feeds/rss/international.xml,presse,2026-11-22,ok,50,2026-11-22,2026-11-22
@@ -46,5 +46,5 @@ https://www.rfi.fr/fr/monde/rss,presse,2026-11-22,ok,30,2026-11-22,2026-11-22
 https://www.rts.ch/info/monde/?format=rss/news,presse,2026-11-22,ok,25,2026-11-22,2026-11-22
 https://www.theglobalfund.org/data/rss-feeds/news-releases/,sante,2026-11-22,ok,10,2026-11-22,2026-11-15
 https://www.theglobalfund.org/data/rss-feeds/updates/,sante,2026-11-22,ok,10,2026-11-22,2026-11-15
-https://www.tsa-algerie.com/category/international/feed/,presse,2026-11-22,ok,10,2026-11-22,2026-11-21
+https://www.tsa-algerie.com/category/international/feed/,presse,2026-11-22,ok,10,2026-11-22,2026-11-22
 https://www.who.int/api/news/diseaseoutbreaknews?$orderby=PublicationDateAndTime%20desc&$top=50,sante,2026-11-22,ok,50,2026-11-22,2026-11-21
