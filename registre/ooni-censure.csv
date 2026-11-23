@@ -4683,6 +4683,7 @@ TL,2026-11-16,signal,1,0,0
 TL,2026-11-16,telegram,1,0,0
 TL,2026-11-16,web_connectivity,100,4,0
 TL,2026-11-16,whatsapp,1,0,0
+TM,2026-11-16,facebook_messenger,1,1,0
 TN,2026-11-16,facebook_messenger,2,0,0
 TN,2026-11-16,signal,2,0,0
 TN,2026-11-16,telegram,2,0,0
@@ -7498,7 +7499,7 @@ AM,2026-11-21,whatsapp,4,0,0
 AO,2026-11-21,facebook_messenger,1,0,0
 AO,2026-11-21,signal,1,0,0
 AO,2026-11-21,telegram,1,0,0
-AO,2026-11-21,web_connectivity,99,2,0
+AO,2026-11-21,web_connectivity,100,2,0
 AO,2026-11-21,whatsapp,1,0,0
 AR,2026-11-21,facebook_messenger,3,0,0
 AR,2026-11-21,signal,3,0,0
@@ -7593,7 +7594,7 @@ CM,2026-11-21,whatsapp,7,0,0
 CN,2026-11-21,facebook_messenger,1,1,0
 CN,2026-11-21,signal,1,1,0
 CN,2026-11-21,telegram,1,1,0
-CN,2026-11-21,web_connectivity,218,10,0
+CN,2026-11-21,web_connectivity,222,12,0
 CN,2026-11-21,whatsapp,1,1,0
 CO,2026-11-21,facebook_messenger,3,0,0
 CO,2026-11-21,signal,3,0,0
@@ -7687,7 +7688,7 @@ GH,2026-11-21,signal,1,0,0
 GH,2026-11-21,telegram,1,0,0
 GH,2026-11-21,web_connectivity,27,2,0
 GH,2026-11-21,whatsapp,1,0,0
-GM,2026-11-21,web_connectivity,10,0,0
+GM,2026-11-21,web_connectivity,11,0,0
 GN,2026-11-21,facebook_messenger,1,0,0
 GN,2026-11-21,signal,1,0,0
 GN,2026-11-21,telegram,1,0,0
@@ -8266,7 +8267,7 @@ CM,2026-11-22,whatsapp,18,0,0
 CN,2026-11-22,facebook_messenger,2,1,0
 CN,2026-11-22,signal,2,1,0
 CN,2026-11-22,telegram,2,2,0
-CN,2026-11-22,web_connectivity,9,1,0
+CN,2026-11-22,web_connectivity,11,1,0
 CN,2026-11-22,whatsapp,2,1,0
 CO,2026-11-22,facebook_messenger,2,0,0
 CO,2026-11-22,signal,2,0,0
@@ -8296,7 +8297,7 @@ CZ,2026-11-22,whatsapp,4,0,0
 DE,2026-11-22,facebook_messenger,38,2,0
 DE,2026-11-22,signal,38,1,0
 DE,2026-11-22,telegram,37,0,0
-DE,2026-11-22,web_connectivity,4155,278,0
+DE,2026-11-22,web_connectivity,4157,278,0
 DE,2026-11-22,whatsapp,39,1,0
 DK,2026-11-22,facebook_messenger,3,0,0
 DK,2026-11-22,signal,3,0,0
@@ -8311,7 +8312,7 @@ DO,2026-11-22,whatsapp,1,0,0
 DZ,2026-11-22,facebook_messenger,4,0,0
 DZ,2026-11-22,signal,4,0,0
 DZ,2026-11-22,telegram,4,0,0
-DZ,2026-11-22,web_connectivity,319,36,0
+DZ,2026-11-22,web_connectivity,320,37,0
 DZ,2026-11-22,whatsapp,4,0,0
 EC,2026-11-22,facebook_messenger,1,0,0
 EC,2026-11-22,signal,1,0,0
@@ -8589,7 +8590,7 @@ MX,2026-11-22,whatsapp,6,0,0
 MY,2026-11-22,facebook_messenger,10,0,0
 MY,2026-11-22,signal,10,0,0
 MY,2026-11-22,telegram,10,0,0
-MY,2026-11-22,web_connectivity,861,25,7
+MY,2026-11-22,web_connectivity,867,25,7
 MY,2026-11-22,whatsapp,10,0,0
 MZ,2026-11-22,facebook_messenger,1,0,0
 MZ,2026-11-22,signal,1,0,0
@@ -8658,7 +8659,7 @@ PK,2026-11-22,whatsapp,1,0,0
 PL,2026-11-22,facebook_messenger,9,1,0
 PL,2026-11-22,signal,9,0,0
 PL,2026-11-22,telegram,9,0,0
-PL,2026-11-22,web_connectivity,960,32,4
+PL,2026-11-22,web_connectivity,999,32,4
 PL,2026-11-22,whatsapp,9,0,0
 PR,2026-11-22,facebook_messenger,1,0,0
 PR,2026-11-22,signal,1,0,0
@@ -8698,7 +8699,7 @@ RS,2026-11-22,whatsapp,3,0,0
 RU,2026-11-22,facebook_messenger,91,40,0
 RU,2026-11-22,signal,84,70,0
 RU,2026-11-22,telegram,77,65,0
-RU,2026-11-22,web_connectivity,9063,2664,84
+RU,2026-11-22,web_connectivity,9074,2670,84
 RU,2026-11-22,whatsapp,78,64,0
 SA,2026-11-22,facebook_messenger,3,0,0
 SA,2026-11-22,signal,4,0,0
@@ -8743,7 +8744,7 @@ SO,2026-11-22,whatsapp,1,0,0
 SV,2026-11-22,facebook_messenger,1,0,0
 SV,2026-11-22,signal,1,0,0
 SV,2026-11-22,telegram,1,0,0
-SV,2026-11-22,web_connectivity,13,0,0
+SV,2026-11-22,web_connectivity,14,0,0
 SV,2026-11-22,whatsapp,1,0,0
 SY,2026-11-22,facebook_messenger,1,0,0
 SY,2026-11-22,signal,1,0,0
